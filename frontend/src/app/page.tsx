@@ -1,7 +1,27 @@
+"use client";
+
+import { useAuth } from "@/lib/auth/context";
+import { WelcomeScreen } from "@/components/welcome/welcome-screen";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
 export default function HomePage() {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[70vh]">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  // Authenticated users stay on the dedicated Welcome screen as their home page
+  if (user) {
+    return <WelcomeScreen user={user} />;
+  }
+
+  // Public Landing Page for unauthenticated visitors
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] text-center space-y-6 max-w-3xl mx-auto">
       <div className="inline-block rounded-full bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary">

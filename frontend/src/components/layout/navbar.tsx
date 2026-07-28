@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useAuth } from "@/lib/auth/context";
 import { Button } from "@/components/ui/button";
+import { User as UserIcon } from "lucide-react";
 
 export function Navbar() {
   const { user, logout } = useAuth();
@@ -17,9 +18,22 @@ export function Navbar() {
         <nav className="flex items-center gap-4">
           {user ? (
             <>
-              <span className="text-sm text-muted-foreground">
-                Hello, {user.full_name || user.email}
-              </span>
+              <Link href="/">
+                <Button variant="ghost" size="sm">
+                  Home
+                </Button>
+              </Link>
+              <Link href="/wishlist">
+                <Button variant="ghost" size="sm" className="gap-1.5 font-medium">
+                  Wishlist
+                </Button>
+              </Link>
+              <Link href="/profile">
+                <Button variant="ghost" size="sm" className="gap-1.5 font-medium">
+                  <UserIcon className="w-4 h-4" />
+                  Profile
+                </Button>
+              </Link>
               <Button variant="outline" size="sm" onClick={() => logout()}>
                 Logout
               </Button>

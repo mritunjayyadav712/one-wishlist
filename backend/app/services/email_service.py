@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-import httpx
+import resend
 
 from app.core.config import settings
 
@@ -10,15 +10,25 @@ logger = logging.getLogger(__name__)
 
 class EmailService:
     """
-    Thin wrapper around the Postmark HTTP API for transactional emails.
-    In development (POSTMARK_API_TOKEN="sandbox"), emails are only logged
-    to stdout — no real delivery occurs.
+    Thin wrapper around the Resend SDK for transactional emails.
+
+    Dev mode
+    --------
+    When ``RESEND_API_KEY`` is ``"sandbox"`` (the default), emails are only
+    logged to stdout — no real delivery occurs and no API call is made.
+
+    Production
+    ----------
+    Set ``RESEND_API_KEY`` in your ``.env`` to your real Resend API key.
+    The ``FROM_EMAIL`` must be a verified sender in your Resend account.
     """
 
-    _POSTMARK_URL = "https://api.postmarkapp.com/email"
+    @classmethod
+    def _from_address(cls) -> str:
+        return f"{settings.FROM_EMAIL_NAME} <{settings.FROM_EMAIL}>"
 
     @classmethod
-    async def _send(
+    def _send(
         cls,
         to_email: str,
         subject: str,
@@ -26,7 +36,7 @@ class EmailService:
         text_body: str,
     ) -> bool:
         # ── Dev shortcut: log instead of sending ─────────────────────────────
-        if settings.POSTMARK_API_TOKEN in ("sandbox", ""):
+        if settings.RESEND_API_KEY in ("sandbox", ""):
             logger.info(
                 "[DEV EMAIL]\n  To: %s\n  Subject: %s\n  Body:\n%s",
                 to_email,
@@ -35,30 +45,20 @@ class EmailService:
             )
             return True
 
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "X-Postmark-Server-Token": settings.POSTMARK_API_TOKEN,
-        }
-        payload = {
-            "From": f"{settings.FROM_EMAIL_NAME} <{settings.FROM_EMAIL}>",
-            "To": to_email,
-            "Subject": subject,
-            "HtmlBody": html_body,
-            "TextBody": text_body,
-            "MessageStream": "outbound",
-        }
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                response = await client.post(
-                    cls._POSTMARK_URL, json=payload, headers=headers
-                )
-                response.raise_for_status()
-                return True
-            except Exception as exc:
-                logger.error("Postmark delivery failed to %s: %s", to_email, exc)
-                return False
+        # ── Production: send via Resend SDK ──────────────────────────────────
+        resend.api_key = settings.RESEND_API_KEY
+        try:
+            resend.Emails.send({
+                "from": cls._from_address(),
+                "to": [to_email],
+                "subject": subject,
+                "html": html_body,
+                "text": text_body,
+            })
+            return True
+        except Exception as exc:
+            logger.error("Resend delivery failed to %s: %s", to_email, exc)
+            return False
 
     # ── Public helpers ────────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ class EmailService:
             f"<p>Or paste this link into your browser:<br>{link}</p>"
         )
         text = f"Welcome to OneWishlist!\n\nVerify your email: {link}"
-        return await cls._send(to_email, subject, html, text)
+        return cls._send(to_email, subject, html, text)
 
     @classmethod
     async def send_password_reset_email(cls, to_email: str, token: str) -> bool:
@@ -96,4 +96,4 @@ class EmailService:
             f"Reset your OneWishlist password: {link}\n\n"
             "If you did not request this, please ignore this email."
         )
-        return await cls._send(to_email, subject, html, text)
+        return cls._send(to_email, subject, html, text)

@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.core.security import (
     create_access_token,
+    create_password_reset_token,
     create_refresh_token,
     create_verification_token,
+    decode_password_reset_token,
     decode_verification_token,
     verify_password,
 )
@@ -66,17 +68,27 @@ class AuthService:
     @staticmethod
     def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
         """
-        Verify credentials.  Returns the User on success, None otherwise.
-        Timing-safe: bcrypt verify runs even when the user is not found
-        to prevent user-enumeration via response time.
+        Verify credentials only — does NOT gate on is_verified.
+
+        Returns:
+            User  — credentials are correct (caller must check is_verified)
+            None  — user not found or wrong password
+
+        Timing-safe: bcrypt.checkpw always runs even when the user doesn't exist
+        to prevent user-enumeration via response-time differences.
         """
         user = UserService.get_by_email(db, email)
-        # Always verify — prevents timing oracle even if user doesn't exist
-        dummy_hash = "$2b$12$KIXGGUkBr6TrCi6BtlXGaOo5bFMr5bFMr5bFMr5bFMr5bFMr5bFMr"
-        stored_hash = user.password_hash if user else dummy_hash
+        # Pre-hashed dummy so bcrypt always does the full work
+        _DUMMY_HASH = (
+            "$2b$12$KIXGGUkBr6TrCi6BtlXGaOo"
+            "5bFMr5bFMr5bFMr5bFMr5bFMr5bFMr"
+        )
+        stored_hash = user.password_hash if user else _DUMMY_HASH
         if not verify_password(password, stored_hash):
             return None
+        # Return user even if not yet verified — endpoint decides the response
         return user
+
 
     # ── Email verification ───────────────────────────────────────────────────
 
@@ -139,21 +151,27 @@ class AuthService:
             delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id)
         )
 
-        raw_token = secrets.token_urlsafe(32)
+        signed_token = create_password_reset_token(user.id)
         db.add(
             PasswordResetToken(
                 user_id=user.id,
-                token=raw_token,
+                token=signed_token,
                 expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
             )
         )
         db.commit()
 
-        await EmailService.send_password_reset_email(user.email, raw_token)
+        await EmailService.send_password_reset_email(user.email, signed_token)
 
     @classmethod
     def reset_password(cls, db: Session, token: str, new_password: str) -> bool:
         """Consume a reset token and update the user's password hash."""
+        # ── Layer 1: cryptographic validation ────────────────────────────────
+        payload = decode_password_reset_token(token)
+        if payload is None:
+            return False
+
+        # ── Layer 2: single-use enforcement via DB ────────────────────────────
         stmt = select(PasswordResetToken).where(PasswordResetToken.token == token)
         tok = db.execute(stmt).scalar_one_or_none()
         if tok is None:
@@ -170,12 +188,15 @@ class AuthService:
 
         user = db.get(User, tok.user_id)
         if user is None:
+            db.delete(tok)
+            db.commit()
             return False
 
         UserService.update(db, user, UserUpdate(password=new_password))
         db.delete(tok)
         db.commit()
         return True
+
 
     # ── Token generation ─────────────────────────────────────────────────────
 

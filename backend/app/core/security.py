@@ -52,6 +52,35 @@ def decode_verification_token(token: str) -> Optional[dict]:
         return None
 
 
+def create_password_reset_token(user_id: Union[str, Any]) -> str:
+    """
+    Create a signed password-reset JWT.
+    Expires in 1 hour. The DB row is still kept for single-use enforcement.
+    """
+    expire = datetime.now(timezone.utc) + timedelta(hours=1)
+    payload = {"sub": str(user_id), "type": "password_reset", "exp": expire}
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def decode_password_reset_token(token: str) -> Optional[dict]:
+    """
+    Decode and verify a password-reset JWT.
+    Returns the payload dict on success, or None if invalid / expired / wrong type.
+    """
+    try:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET,
+            algorithms=[settings.JWT_ALGORITHM],
+        )
+        if payload.get("type") != "password_reset":
+            return None
+        return payload
+    except jwt.PyJWTError:
+        return None
+
+
+
 def create_access_token(
     subject: Union[str, Any],
     expires_delta: Optional[timedelta] = None,

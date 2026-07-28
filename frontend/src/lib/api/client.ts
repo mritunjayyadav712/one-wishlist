@@ -7,7 +7,8 @@ interface FetchOptions extends RequestInit {
 
 export async function apiClient<T>(
   endpoint: string,
-  options: FetchOptions = {}
+  options: FetchOptions = {},
+  isRetry = false
 ): Promise<T> {
   const { params, headers, ...customConfig } = options;
 
@@ -30,6 +31,26 @@ export async function apiClient<T>(
   };
 
   const response = await fetch(url, config);
+
+  // Auto-refresh access token on 401 for authenticated endpoints
+  if (response.status === 401 && !isRetry && !endpoint.startsWith("/auth/")) {
+    try {
+      const refreshResponse = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+      });
+
+      if (refreshResponse.ok) {
+        // Retry original request once
+        return apiClient<T>(endpoint, options, true);
+      }
+    } catch {
+      // Fall through to standard error handling if refresh fails
+    }
+  }
 
   if (!response.ok) {
     let errorMessage = "An error occurred";

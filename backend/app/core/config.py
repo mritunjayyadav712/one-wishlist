@@ -22,9 +22,9 @@ class Settings(BaseSettings):
     COOKIE_SAMESITE: str = "lax"         # "strict" | "lax" | "none"
     COOKIE_DOMAIN: Union[str, None] = None
 
-    # ── Postmark Transactional Emails ───────────────────────────────────────
-    POSTMARK_API_TOKEN: str = "sandbox"
-    FROM_EMAIL: str = "noreply@onewishlist.com"
+    # ── Resend Transactional Emails ─────────────────────────────────────────
+    RESEND_API_KEY: str = "sandbox"          # Set to your real key in .env
+    FROM_EMAIL: str = "onboarding@resend.dev"
     FROM_EMAIL_NAME: str = "OneWishlist"
 
     # ── Frontend / CORS ─────────────────────────────────────────────────────

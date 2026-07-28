@@ -42,7 +42,7 @@ export default function DashboardPage() {
               <span className="font-semibold">Email:</span> {user.email}
             </div>
             <div>
-              <span className="font-semibold">Full Name:</span> {user.full_name || "N/A"}
+              <span className="font-semibold">Full Name:</span> {user.name || user.full_name || "N/A"}
             </div>
             <div>
               <span className="font-semibold">Email Verified:</span>{" "}

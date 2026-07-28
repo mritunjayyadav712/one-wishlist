@@ -50,8 +50,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     try {
       await apiClient("/auth/logout", { method: "POST" });
+    } catch {
+      // Ignore API errors on logout and proceed with local cleanup
     } finally {
       setUser(null);
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
     }
   };
 

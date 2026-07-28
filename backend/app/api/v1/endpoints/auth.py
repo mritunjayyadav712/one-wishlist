@@ -29,6 +29,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
         domain=settings.COOKIE_DOMAIN,
+        path="/",
     )
     response.set_cookie(
         key="access_token",
@@ -46,8 +47,15 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
 
 def _clear_auth_cookies(response: Response) -> None:
     """Expire both auth cookies immediately."""
-    response.delete_cookie(key="access_token", domain=settings.COOKIE_DOMAIN)
-    response.delete_cookie(key="refresh_token", domain=settings.COOKIE_DOMAIN)
+    _cookie_kwargs = dict(
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN,
+        path="/",
+    )
+    response.delete_cookie(key="access_token", **_cookie_kwargs)
+    response.delete_cookie(key="refresh_token", **_cookie_kwargs)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -81,9 +89,24 @@ async def register(body: RegisterRequest, db: Session = Depends(get_db)):
 )
 def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
     """
-    Validates credentials, then sets ``access_token`` and
-    ``refresh_token`` as HttpOnly cookies.
+    Authenticate a user and issue JWT tokens as HttpOnly cookies.
+
+    Flow
+    ----
+    1. Look up user by email and verify password with bcrypt (timing-safe).
+    2. Reject with **401** if credentials are wrong (no hint about which field).
+    3. Reject with **403** if the email address has not been verified yet.
+    4. Reject with **403** if the account has been deactivated.
+    5. Generate access + refresh JWTs, write both as HttpOnly Secure cookies.
+    6. Return the authenticated user in the response body.
+
+    Cookie details
+    --------------
+    - ``access_token``  — short-lived (see ACCESS_TOKEN_EXPIRE_MINUTES)
+    - ``refresh_token`` — long-lived (see REFRESH_TOKEN_EXPIRE_DAYS)
+    Both cookies are ``HttpOnly``, ``Secure`` (in production), and ``SameSite``.
     """
+    # ── Step 1 & 2: credential check (bcrypt, timing-safe) ───────────────────
     user = AuthService.authenticate_user(db, body.email, body.password)
     if user is None:
         raise HTTPException(
@@ -91,10 +114,30 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
             detail="Incorrect email or password.",
         )
 
+    # ── Step 3: email must be verified before login is allowed ───────────────
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Email address not verified. "
+                "Please check your inbox for the verification link."
+            ),
+        )
+
+    # ── Step 4: account must be active ───────────────────────────────────────
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been deactivated. Please contact support.",
+        )
+
+    # ── Step 5: issue JWT pair and write to HttpOnly cookies ─────────────────
     access_token, refresh_token = AuthService.generate_tokens(user.id)
     _set_auth_cookies(response, access_token, refresh_token)
 
+    # ── Step 6: return authenticated user ────────────────────────────────────
     return AuthResponse(message="Login successful.", user=UserRead.model_validate(user))
+
 
 
 @router.post(
@@ -160,6 +203,7 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
         domain=settings.COOKIE_DOMAIN,
+        path="/",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
     return MessageResponse(message="Access token refreshed.")
