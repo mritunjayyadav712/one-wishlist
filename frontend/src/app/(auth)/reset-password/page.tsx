@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import ResetPasswordClient from "./reset-password-client";
+import ResetPasswordClient from "./ResetPasswordClient";
 
 export default function ResetPasswordPage() {
   return (
