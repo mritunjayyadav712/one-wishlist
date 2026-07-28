@@ -24,6 +24,34 @@ def get_password_hash(password: str) -> str:
 
 # ── JWT helpers ─────────────────────────────────────────────────────────────
 
+def create_verification_token(user_id: Union[str, Any]) -> str:
+    """
+    Create a signed email-verification JWT.
+    Expires in 24 hours.  The DB row is still kept for single-use enforcement.
+    """
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    payload = {"sub": str(user_id), "type": "email_verify", "exp": expire}
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def decode_verification_token(token: str) -> Optional[dict]:
+    """
+    Decode and verify an email-verification JWT.
+    Returns the payload dict on success, or None if invalid / expired / wrong type.
+    """
+    try:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET,
+            algorithms=[settings.JWT_ALGORITHM],
+        )
+        if payload.get("type") != "email_verify":
+            return None
+        return payload
+    except jwt.PyJWTError:
+        return None
+
+
 def create_access_token(
     subject: Union[str, Any],
     expires_delta: Optional[timedelta] = None,

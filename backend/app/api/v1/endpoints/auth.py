@@ -165,18 +165,46 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
     return MessageResponse(message="Access token refreshed.")
 
 
+@router.get(
+    "/verify-email",
+    response_model=MessageResponse,
+    summary="Verify email address via signed token (link click)",
+)
+def verify_email_get(token: str, db: Session = Depends(get_db)):
+    """
+    Called when the user clicks the verification link in their inbox:
+
+        GET /auth/verify-email?token=<signed-jwt>
+
+    The signed JWT is validated cryptographically first (signature + type +
+    expiry), then the DB row is consumed to prevent reuse.
+    Returns 400 if the token is invalid, expired, or already used.
+    """
+    if not AuthService.verify_email(db, token):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification token.",
+        )
+    return MessageResponse(message="Email verified successfully. You can now log in.")
+
+
 @router.post(
     "/verify-email",
     response_model=MessageResponse,
-    summary="Verify email address via one-time token",
+    summary="Verify email address via signed token (API clients)",
 )
-def verify_email(body: VerifyEmailRequest, db: Session = Depends(get_db)):
+def verify_email_post(body: VerifyEmailRequest, db: Session = Depends(get_db)):
+    """
+    API-friendly variant — accepts ``{ "token": "<signed-jwt>" }`` in the body.
+    Shares the same two-layer validation as the GET endpoint.
+    """
     if not AuthService.verify_email(db, body.token):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired verification token.",
         )
-    return MessageResponse(message="Email verified successfully.")
+    return MessageResponse(message="Email verified successfully. You can now log in.")
+
 
 
 @router.post(

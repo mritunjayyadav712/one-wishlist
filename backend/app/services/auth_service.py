@@ -6,7 +6,13 @@ from typing import Optional, Tuple
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.core.security import create_access_token, create_refresh_token, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    create_verification_token,
+    decode_verification_token,
+    verify_password,
+)
 from app.models.token import PasswordResetToken, VerificationToken
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
@@ -41,18 +47,18 @@ class AuthService:
         user_in = UserCreate(email=email, password=password, name=name)
         user = UserService.create(db, user_in)
 
-        # Create a 24-hour verification token
-        raw_token = secrets.token_urlsafe(32)
+        # Create a signed 24-hour verification JWT and persist for single-use enforcement
+        signed_token = create_verification_token(user.id)
         db.add(
             VerificationToken(
                 user_id=user.id,
-                token=raw_token,
+                token=signed_token,
                 expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
             )
         )
         db.commit()
 
-        await EmailService.send_verification_email(user.email, raw_token)
+        await EmailService.send_verification_email(user.email, signed_token)
         return user
 
     # ── Login ────────────────────────────────────────────────────────────────
@@ -76,16 +82,30 @@ class AuthService:
 
     @staticmethod
     def verify_email(db: Session, token: str) -> bool:
-        """Consume a verification token and mark the user as verified."""
+        """
+        Consume a signed verification token and mark the user as verified.
+
+        Two-layer check:
+        1. JWT signature + type + expiry verified cryptographically (fast-fail).
+        2. DB row looked up by token string — deleted on success to prevent reuse.
+        """
+        # ── Layer 1: cryptographic validation ────────────────────────────────
+        payload = decode_verification_token(token)
+        if payload is None:
+            # Signature invalid, wrong type, or JWT expired
+            return False
+
+        # ── Layer 2: single-use enforcement via DB ────────────────────────────
         stmt = select(VerificationToken).where(VerificationToken.token == token)
         tok = db.execute(stmt).scalar_one_or_none()
         if tok is None:
+            # Token already consumed or never issued
             return False
 
+        # Belt-and-suspenders: also honour the DB expiry (should match JWT exp)
         expires_at = tok.expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
-
         if datetime.now(timezone.utc) > expires_at:
             db.delete(tok)
             db.commit()
@@ -93,10 +113,12 @@ class AuthService:
 
         user = db.get(User, tok.user_id)
         if user is None:
+            db.delete(tok)
+            db.commit()
             return False
 
         user.is_verified = True
-        db.delete(tok)
+        db.delete(tok)   # ← single-use: token is consumed here
         db.commit()
         return True
 
