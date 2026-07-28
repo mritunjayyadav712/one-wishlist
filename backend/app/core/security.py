@@ -1,23 +1,25 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Union
 
+import bcrypt
 import jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
 # ── Password hashing (bcrypt) ───────────────────────────────────────────────
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
+# Using bcrypt directly — passlib 1.7.4 is incompatible with bcrypt ≥ 4.x.
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Return True if plain_password matches the stored bcrypt hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"),
+        hashed_password.encode("utf-8"),
+    )
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a plain-text password with bcrypt."""
-    return pwd_context.hash(password)
+    """Hash a plain-text password with bcrypt (12 rounds)."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
 
 
 # ── JWT helpers ─────────────────────────────────────────────────────────────

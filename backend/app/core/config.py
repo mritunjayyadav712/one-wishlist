@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
 
     # ── Database (Neon PostgreSQL) ──────────────────────────────────────────
-    DATABASE_URL: str = "postgresql+psycopg2://user:password@localhost:5432/onewishlist"
+    #DATABASE_URL: str = "postgresql+psycopg2://user:password@localhost:5432/onewishlist"
+    DATABASE_URL: str = "postgresql://neondb_owner:npg_u6VdniF4QswN@ep-plain-waterfall-az6t32wk.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
 
     # ── JWT Authentication ──────────────────────────────────────────────────
     JWT_SECRET: str = "change_me_to_a_random_32_char_secret_in_production"
